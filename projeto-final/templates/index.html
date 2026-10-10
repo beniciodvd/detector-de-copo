@@ -1,0 +1,225 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detector de Copo</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #eff6ff;
+            color: #1e293b;
+            text-align: center;
+            padding: 30px 15px;
+        }
+
+        main {
+            max-width: 450px;
+            margin: auto;
+            padding: 25px;
+            background: white;
+            border-radius: 18px;
+            box-shadow: 0 5px 20px #0001;
+        }
+
+        input {
+            display: block;
+            width: 100%;
+            margin: 20px 0;
+        }
+
+        button {
+            width: 100%;
+            padding: 13px;
+            background: #2563eb;
+            color: white;
+            border: 0;
+            border-radius: 9px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+        }
+
+        #foto {
+            display: none;
+            max-width: 100%;
+            max-height: 350px;
+            margin: 20px auto;
+            border-radius: 12px;
+        }
+
+        #resultado {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 21px;
+            font-weight: bold;
+        }
+
+        .cheio {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .vazio {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        #mensagem {
+            color: #64748b;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+<main>
+    <h1>🥛 Detector de Copo</h1>
+    <p>Escolha uma foto para descobrir se o copo está cheio ou vazio.</p>
+
+    <input type="file" id="arquivo" accept="image/*">
+
+    <img id="foto" alt="Foto selecionada do copo">
+
+    <button id="analisar" disabled onclick="analisarImagem()">
+        Analisar imagem
+    </button>
+
+    <div id="resultado">Selecione uma foto para começar.</div>
+    <p id="mensagem"></p>
+</main>
+
+<script>
+    const URL_MODELO = "/model/";
+
+    let modelo = null;
+
+    const arquivo = document.getElementById("arquivo");
+    const foto = document.getElementById("foto");
+    const botao = document.getElementById("analisar");
+    const resultado = document.getElementById("resultado");
+    const mensagem = document.getElementById("mensagem");
+
+    arquivo.addEventListener("change", () => {
+        const imagem = arquivo.files[0];
+
+        resultado.className = "";
+        mensagem.textContent = "";
+
+        if (!imagem) {
+            foto.style.display = "none";
+            botao.disabled = true;
+            return;
+        }
+
+        if (!imagem.type.startsWith("image/")) {
+            resultado.textContent = "Selecione um arquivo de imagem válido.";
+            foto.style.display = "none";
+            botao.disabled = true;
+            return;
+        }
+
+        foto.onload = () => {
+            foto.style.display = "block";
+            botao.disabled = false;
+            resultado.textContent = "Foto pronta para análise.";
+        };
+
+        foto.onerror = () => {
+            botao.disabled = true;
+            resultado.textContent = "Não foi possível abrir essa imagem.";
+        };
+
+        foto.src = URL.createObjectURL(imagem);
+    });
+
+    async function analisarImagem() {
+        botao.disabled = true;
+        resultado.className = "";
+        resultado.textContent = "Analisando imagem...";
+        mensagem.textContent = "";
+
+        try {
+            if (!modelo) {
+                modelo = await tmImage.load(
+                    URL_MODELO + "model.json",
+                    URL_MODELO + "metadata.json"
+                );
+            }
+
+            const previsoes = await modelo.predict(foto);
+
+            function normalizarNome(nome) {
+    return nome
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toLowerCase();
+}
+
+const cheio = previsoes.find(
+    p => normalizarNome(p.className).includes("cheio")
+);
+
+const vazio = previsoes.find(
+    p => normalizarNome(p.className).includes("vazio")
+);
+
+if (!cheio || !vazio) {
+    const nomes = previsoes.map(p => p.className).join(", ");
+
+    throw new Error(
+        "Classes encontradas no modelo: " + nomes +
+        ". Esperava encontrar uma classe com 'cheio' e outra com 'vazio'."
+    );
+}
+
+            if (!cheio || !vazio) {
+                throw new Error("Confira os nomes das classes do modelo.");
+            }
+
+            const melhor = cheio.probability >= vazio.probability
+                ? cheio
+                : vazio;
+
+            const porcentagem =
+                (melhor.probability * 100).toFixed(1);
+
+            if (melhor.probability < 0.70) {
+                resultado.textContent = "Resultado inconclusivo";
+                mensagem.textContent =
+                    "Tente enviar uma foto mais nítida e bem iluminada.";
+                return;
+            }
+
+            if (melhor.className.trim().toLowerCase() === "cheio") {
+                resultado.className = "cheio";
+                resultado.textContent = "✅ Copo cheio";
+            } else {
+                resultado.className = "vazio";
+                resultado.textContent = "⭕ Copo vazio";
+            }
+
+            mensagem.textContent = "Confiança do modelo: " + porcentagem + "%";
+
+        } catch (erro) {
+            console.error(erro);
+            resultado.textContent = "Erro ao analisar a imagem.";
+            mensagem.textContent =
+                erro.message || "Verifique os arquivos do modelo e tente novamente.";
+        } finally {
+            botao.disabled = !arquivo.files.length;
+        }
+    }
+</script>
+</body>
+</html>
